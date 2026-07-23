@@ -86,18 +86,28 @@ function normalizeLabel(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+export function looksLikeAgendaPageContent(value) {
+  const text = value || '';
+  const normalized = normalizeLabel(text);
+  return normalized.includes('list of business') ||
+    normalized.includes('revised list of business') ||
+    /no document available|no documents available|no data available/i.test(text);
+}
+
 async function waitForAgendaResponse(page) {
-  await page.waitForFunction(
-    (firstDocumentName) => {
-      const normalized = firstDocumentName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      return [...document.querySelectorAll('p')].some((node) => {
-        const text = (node.textContent || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-        return text === normalized;
-      }) || [...document.querySelectorAll('p')].some((node) => /no document available/i.test(node.textContent || ''));
-    },
-    AGENDA_DOCUMENTS[0].label,
-    { timeout: config.timeout }
-  );
+  try {
+    await page.waitForFunction(
+      () => {
+        const content = [...document.querySelectorAll('p, div, span')]
+          .map((node) => node.textContent || '')
+          .join('\n');
+        return /list of business|revised list of business|no document available|no documents available|no data available/i.test(content);
+      },
+      { timeout: Math.min(config.timeout, 20_000) }
+    );
+  } catch {
+    await logger.warn('Agenda page did not expose the expected document labels in time; continuing with the current page state.');
+  }
 }
 
 async function selectTomorrow(page, targetDate) {
@@ -231,8 +241,9 @@ async function processSite(page, site, targetDate, temporaryFolder, runId, state
   await selectTomorrow(page, targetDate);
   await waitForAgendaResponse(page);
 
-  const noDocument = await page.getByText('No document available', { exact: false }).count();
-  if (noDocument > 0) {
+  const pageText = await page.locator('body').innerText();
+  const noDocument = /no document available|no documents available|no data available/i.test(pageText);
+  if (noDocument) {
     await logger.warn(`${site.name}: Sansad reports no document available for tomorrow.`);
     return { site: site.id, status: 'no-document' };
   }

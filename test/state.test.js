@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { loadState, saveState, getDocumentState, markDocumentProcessed } from '../src/state.js';
+import { looksLikeAgendaPageContent } from '../src/downloader.js';
 
 test('tracks each document independently for a day', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'sansad-state-'));
@@ -20,4 +21,11 @@ test('tracks each document independently for a day', async () => {
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test('recognizes agenda page labels and no-document messages', () => {
+  assert.equal(looksLikeAgendaPageContent('List of Business'), true);
+  assert.equal(looksLikeAgendaPageContent('Revised List of Business'), true);
+  assert.equal(looksLikeAgendaPageContent('No document available'), true);
+  assert.equal(looksLikeAgendaPageContent('Some unrelated content'), false);
 });
