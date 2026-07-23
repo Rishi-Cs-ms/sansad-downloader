@@ -31,6 +31,14 @@ export function tomorrow() {
   return addDaysInTimeZone(new Date(), 1);
 }
 
+export function today() {
+  return addDaysInTimeZone(new Date(), 0);
+}
+
+export function agendaDateCandidates(date = new Date()) {
+  return [addDaysInTimeZone(date, 1), addDaysInTimeZone(date, 0)];
+}
+
 export function todayKey(date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: config.timeZone,
@@ -162,18 +170,18 @@ async function selectAgendaDocument(page, documentName) {
   return true;
 }
 
-async function processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, todayKeyValue) {
+async function processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, dayKeyValue) {
   const fileName = agendaFileName(targetDate, site, document);
   const finalPath = path.join(config.downloadFolder, fileName);
   const temporaryPath = path.join(temporaryFolder, `${fileName}.${runId}.part`);
 
-  if (getDocumentState(state, todayKeyValue, site.id, document.key)) {
-    await logger.info(`${site.shortName}/${document.label}: already processed for ${todayKeyValue}; skipping.`);
+  if (getDocumentState(state, dayKeyValue, site.id, document.key)) {
+    await logger.info(`${site.shortName}/${document.label}: already processed for ${dayKeyValue}; skipping.`);
     return { site: site.id, document: document.label, status: 'already-processed' };
   }
 
   if (await exists(finalPath)) {
-    markDocumentProcessed(state, todayKeyValue, site.id, document.key);
+    markDocumentProcessed(state, dayKeyValue, site.id, document.key);
     await saveState(config.stateFile, state);
     await logger.info(`${site.shortName}/${document.label}: skipped because ${fileName} already exists.`);
     return { site: site.id, document: document.label, status: 'already-exists', filePath: finalPath };
@@ -204,7 +212,7 @@ async function processAgendaDocument(page, site, document, targetDate, temporary
     }
 
     await rename(temporaryPath, finalPath);
-    markDocumentProcessed(state, todayKeyValue, site.id, document.key);
+    markDocumentProcessed(state, dayKeyValue, site.id, document.key);
     await saveState(config.stateFile, state);
     await logger.success(`${site.shortName}/${document.label}: saved ${finalPath}`);
     return { site: site.id, document: document.label, status: 'saved', filePath: finalPath, pages };
@@ -213,32 +221,56 @@ async function processAgendaDocument(page, site, document, targetDate, temporary
   }
 }
 
-async function processSite(page, site, targetDate, temporaryFolder, runId, state, todayKeyValue) {
+async function processSite(page, site, temporaryFolder, runId, state, dayKeyValue) {
   await logger.info(`${site.name}: opening site.`);
   await page.goto(site.baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForLoadState('networkidle', { timeout: config.timeout }).catch(() => {});
   await logger.info(`${site.name}: website opened.`);
 
-  await selectTomorrow(page, targetDate);
-  await waitForAgendaResponse(page);
+  const results = [];
+  let usedDate = null;
 
-  const pageText = await page.locator('body').innerText();
-  const noDocument = /no document available|no documents available|no data available/i.test(pageText);
-  if (noDocument) {
-    await logger.warn(`${site.name}: Sansad reports no document available for tomorrow.`);
+  for (const targetDate of agendaDateCandidates()) {
+    await selectTomorrow(page, targetDate);
+    await waitForAgendaResponse(page);
+
+    const pageText = await page.locator('body').innerText();
+    const noDocument = /no document available|no documents available|no data available/i.test(pageText);
+    if (noDocument) {
+      await logger.warn(`${site.name}: Sansad reports no document available for ${todayKey(targetDate)}.`);
+      continue;
+    }
+
+    const dateResults = [];
+    for (const document of AGENDA_DOCUMENTS) {
+      try {
+        dateResults.push(await processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, dayKeyValue));
+      } catch (error) {
+        await logger.error(`${site.name}/${document.label}: processing failed; continuing with the other documents.`, error);
+        await saveFailureArtifacts(page, `${runId}-${site.id}-${document.filePrefix}`);
+        dateResults.push({ site: site.id, document: document.label, status: 'failed', error: error.message });
+      }
+    }
+
+    const hasUsefulResult = dateResults.some((result) => ['saved', 'already-exists', 'already-processed', 'one-page'].includes(result.status));
+    if (hasUsefulResult) {
+      usedDate = targetDate;
+      results.push(...dateResults);
+      break;
+    }
+
+    if (dateResults.some((result) => result.status !== 'not-published')) {
+      usedDate = targetDate;
+      results.push(...dateResults);
+      break;
+    }
+  }
+
+  if (!usedDate) {
+    await logger.warn(`${site.name}: no agenda was available for either tomorrow or today.`);
     return { site: site.id, status: 'no-document' };
   }
 
-  const results = [];
-  for (const document of AGENDA_DOCUMENTS) {
-    try {
-      results.push(await processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, todayKeyValue));
-    } catch (error) {
-      await logger.error(`${site.name}/${document.label}: processing failed; continuing with the other documents.`, error);
-      await saveFailureArtifacts(page, `${runId}-${site.id}-${document.filePrefix}`);
-      results.push({ site: site.id, document: document.label, status: 'failed', error: error.message });
-    }
-  }
   return { site: site.id, status: 'completed', results };
 }
 
@@ -266,7 +298,7 @@ export async function runDownload() {
     const siteResults = [];
     const savedFiles = [];
     for (const site of config.sites) {
-      const siteResult = await processSite(page, site, targetDate, temporaryFolder, runId, state, today);
+      const siteResult = await processSite(page, site, temporaryFolder, runId, state, today);
       siteResults.push(siteResult);
       for (const result of siteResult.results || []) {
         if (result.status === 'saved' && result.filePath && !savedFiles.includes(result.filePath)) {
