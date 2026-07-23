@@ -31,12 +31,8 @@ export function tomorrow() {
   return addDaysInTimeZone(new Date(), 1);
 }
 
-export function today() {
-  return addDaysInTimeZone(new Date(), 0);
-}
-
-export function agendaDateCandidates(date = new Date()) {
-  return [addDaysInTimeZone(date, 1), addDaysInTimeZone(date, 0)];
+export function tomorrowDate(date = new Date()) {
+  return addDaysInTimeZone(date, 1);
 }
 
 export function todayKey(date = new Date()) {
@@ -190,7 +186,7 @@ async function processAgendaDocument(page, site, document, targetDate, temporary
   try {
     const available = await selectAgendaDocument(page, document.label);
     if (!available) {
-      await logger.info(`${site.shortName}/${document.label}: not published for tomorrow; skipped.`);
+      await logger.info(`${site.shortName}/${document.label}: not published for ${todayKey(targetDate)}; skipped.`);
       return { site: site.id, document: document.label, status: 'not-published' };
     }
 
@@ -228,47 +224,26 @@ async function processSite(page, site, temporaryFolder, runId, state, dayKeyValu
   await logger.info(`${site.name}: website opened.`);
 
   const results = [];
-  let usedDate = null;
+  const targetDate = tomorrowDate();
 
-  for (const targetDate of agendaDateCandidates()) {
-    await selectTomorrow(page, targetDate);
-    await waitForAgendaResponse(page);
+  await selectTomorrow(page, targetDate);
+  await waitForAgendaResponse(page);
 
-    const pageText = await page.locator('body').innerText();
-    const noDocument = /no document available|no documents available|no data available/i.test(pageText);
-    if (noDocument) {
-      await logger.warn(`${site.name}: Sansad reports no document available for ${todayKey(targetDate)}.`);
-      continue;
-    }
-
-    const dateResults = [];
-    for (const document of AGENDA_DOCUMENTS) {
-      try {
-        dateResults.push(await processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, dayKeyValue));
-      } catch (error) {
-        await logger.error(`${site.name}/${document.label}: processing failed; continuing with the other documents.`, error);
-        await saveFailureArtifacts(page, `${runId}-${site.id}-${document.filePrefix}`);
-        dateResults.push({ site: site.id, document: document.label, status: 'failed', error: error.message });
-      }
-    }
-
-    const hasUsefulResult = dateResults.some((result) => ['saved', 'already-exists', 'already-processed', 'one-page'].includes(result.status));
-    if (hasUsefulResult) {
-      usedDate = targetDate;
-      results.push(...dateResults);
-      break;
-    }
-
-    if (dateResults.some((result) => result.status !== 'not-published')) {
-      usedDate = targetDate;
-      results.push(...dateResults);
-      break;
-    }
+  const pageText = await page.locator('body').innerText();
+  const noDocument = /no document available|no documents available|no data available/i.test(pageText);
+  if (noDocument) {
+    await logger.warn(`${site.name}: Sansad reports no document available for ${todayKey(targetDate)}.`);
+    return { site: site.id, status: 'no-document' };
   }
 
-  if (!usedDate) {
-    await logger.warn(`${site.name}: no agenda was available for either tomorrow or today.`);
-    return { site: site.id, status: 'no-document' };
+  for (const document of AGENDA_DOCUMENTS) {
+    try {
+      results.push(await processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, dayKeyValue));
+    } catch (error) {
+      await logger.error(`${site.name}/${document.label}: processing failed; continuing with the other documents.`, error);
+      await saveFailureArtifacts(page, `${runId}-${site.id}-${document.filePrefix}`);
+      results.push({ site: site.id, document: document.label, status: 'failed', error: error.message });
+    }
   }
 
   return { site: site.id, status: 'completed', results };
@@ -277,7 +252,6 @@ async function processSite(page, site, temporaryFolder, runId, state, dayKeyValu
 export async function runDownload() {
   const startedAt = Date.now();
   const runId = `${Date.now()}-${process.pid}`;
-  const targetDate = tomorrow();
   const temporaryFolder = path.join(config.downloadFolder, '.tmp');
   const today = todayKey(new Date());
   const state = await loadState(config.stateFile);

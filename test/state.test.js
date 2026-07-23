@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { loadState, saveState, getDocumentState, markDocumentProcessed } from '../src/state.js';
-import { agendaDateCandidates, looksLikeAgendaPageContent } from '../src/downloader.js';
+import { tomorrowDate, looksLikeAgendaPageContent } from '../src/downloader.js';
 
 test('tracks each document independently for a day', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'sansad-state-'));
@@ -30,9 +30,8 @@ test('recognizes agenda page labels and no-document messages', () => {
   assert.equal(looksLikeAgendaPageContent('Some unrelated content'), false);
 });
 
-test('tries tomorrow first and falls back to today', () => {
+test('uses tomorrow as the target agenda date', () => {
   const referenceDate = new Date('2026-07-23T12:00:00Z');
-  const candidates = agendaDateCandidates(referenceDate);
-  assert.equal(candidates[0].toISOString().slice(0, 10), '2026-07-24');
-  assert.equal(candidates[1].toISOString().slice(0, 10), '2026-07-23');
+  const targetDate = tomorrowDate(referenceDate);
+  assert.equal(targetDate.toISOString().slice(0, 10), '2026-07-24');
 });

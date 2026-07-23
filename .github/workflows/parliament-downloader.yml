@@ -2,9 +2,7 @@ name: Parliament Downloader
 
 on:
   schedule:
-    - cron: '30-59 13 * * *'
-    - cron: '*/5 14 * * *'
-    - cron: '0-30/5 15 * * *'
+    - cron: '*/5 13-20 * * *'
   workflow_dispatch:
 
 permissions:
