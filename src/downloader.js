@@ -116,12 +116,7 @@ async function selectTomorrow(page, targetDate) {
 
   await input.fill(sansadDate(targetDate));
   await input.press('Enter');
-  await page.waitForFunction(
-    (expected) => document.querySelector('button[aria-label^="Choose date, selected date is"]')
-      ?.getAttribute('aria-label')?.includes(expected),
-    muiAriaDate(targetDate),
-    { timeout: config.timeout }
-  );
+  await waitForAgendaResponse(page);
 }
 
 async function downloadPdf(page, temporaryPath) {
@@ -168,17 +163,23 @@ async function selectAgendaDocument(page, documentName) {
   }
 
   await cardLink.click();
-  await page.waitForFunction(
-    ({ name, testId }) => {
-      const title = [...document.querySelectorAll('p')]
-        .find((node) => (node.textContent || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
-      const cardElement = title?.closest('.MuiCard-root');
-      return Boolean(cardElement) && Boolean(document.querySelector(`[data-testid="${testId}"]`));
-    },
-    { name: documentName, testId: AGENDA_DOWNLOAD_TEST_ID },
-    { timeout: config.timeout }
-  );
-  return true;
+
+  try {
+    await page.waitForFunction(
+      ({ name, testId }) => {
+        const title = [...document.querySelectorAll('p')]
+          .find((node) => (node.textContent || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
+        const cardElement = title?.closest('.MuiCard-root');
+        return Boolean(cardElement) && Boolean(document.querySelector(`[data-testid="${testId}"]`));
+      },
+      { name: documentName, testId: AGENDA_DOWNLOAD_TEST_ID },
+      { timeout: 10_000 }
+    );
+    return true;
+  } catch {
+    await logger.warn(`${documentName}: the page did not expose the expected document controls in time; continuing with the current state.`);
+    return false;
+  }
 }
 
 async function processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, todayKeyValue) {
