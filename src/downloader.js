@@ -4,13 +4,13 @@ import { chromium } from 'playwright';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { countPdfPages } from './pdf.js';
-import { loadState, saveState, shouldSendEmail } from './state.js';
+import { loadState, saveState, getDocumentState, markDocumentProcessed } from './state.js';
 import { sendEmail } from './email.js';
 
 const AGENDA_DOWNLOAD_TEST_ID = 'get-file__download-button';
 const AGENDA_DOCUMENTS = [
-  { label: 'List Of Business', filePrefix: 'Agenda' },
-  { label: 'Revised List of Business', filePrefix: 'Revised_List_of_Business' }
+  { label: 'List Of Business', filePrefix: 'Agenda', key: 'listOfBusiness' },
+  { label: 'Revised List of Business', filePrefix: 'Revised_List_of_Business', key: 'revisedListOfBusiness' }
 ];
 
 function addDaysInTimeZone(baseDate, days) {
@@ -171,12 +171,19 @@ async function selectAgendaDocument(page, documentName) {
   return true;
 }
 
-async function processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId) {
+async function processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, todayKeyValue) {
   const fileName = agendaFileName(targetDate, site, document);
   const finalPath = path.join(config.downloadFolder, fileName);
   const temporaryPath = path.join(temporaryFolder, `${fileName}.${runId}.part`);
 
+  if (getDocumentState(state, todayKeyValue, site.id, document.key)) {
+    await logger.info(`${site.shortName}/${document.label}: already processed for ${todayKeyValue}; skipping.`);
+    return { site: site.id, document: document.label, status: 'already-processed' };
+  }
+
   if (await exists(finalPath)) {
+    markDocumentProcessed(state, todayKeyValue, site.id, document.key);
+    await saveState(config.stateFile, state);
     await logger.info(`${site.shortName}/${document.label}: skipped because ${fileName} already exists.`);
     return { site: site.id, document: document.label, status: 'already-exists', filePath: finalPath };
   }
@@ -206,6 +213,8 @@ async function processAgendaDocument(page, site, document, targetDate, temporary
     }
 
     await rename(temporaryPath, finalPath);
+    markDocumentProcessed(state, todayKeyValue, site.id, document.key);
+    await saveState(config.stateFile, state);
     await logger.success(`${site.shortName}/${document.label}: saved ${finalPath}`);
     return { site: site.id, document: document.label, status: 'saved', filePath: finalPath, pages };
   } finally {
@@ -213,7 +222,7 @@ async function processAgendaDocument(page, site, document, targetDate, temporary
   }
 }
 
-async function processSite(page, site, targetDate, temporaryFolder, runId) {
+async function processSite(page, site, targetDate, temporaryFolder, runId, state, todayKeyValue) {
   await logger.info(`${site.name}: opening site.`);
   await page.goto(site.baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForLoadState('networkidle', { timeout: config.timeout }).catch(() => {});
@@ -231,7 +240,7 @@ async function processSite(page, site, targetDate, temporaryFolder, runId) {
   const results = [];
   for (const document of AGENDA_DOCUMENTS) {
     try {
-      results.push(await processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId));
+      results.push(await processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, todayKeyValue));
     } catch (error) {
       await logger.error(`${site.name}/${document.label}: processing failed; continuing with the other documents.`, error);
       await saveFailureArtifacts(page, `${runId}-${site.id}-${document.filePrefix}`);
@@ -252,11 +261,6 @@ export async function runDownload() {
   await mkdir(temporaryFolder, { recursive: true });
   await logger.info(`Tomorrow date (${config.timeZone}): ${today}.`);
 
-  if (!shouldSendEmail(state, today)) {
-    await logger.info(`Email already sent for ${today}; exiting without downloading again.`);
-    return { status: 'already-sent' };
-  }
-
   let browser;
   let page;
 
@@ -268,14 +272,16 @@ export async function runDownload() {
     page.setDefaultNavigationTimeout(config.timeout);
 
     const siteResults = [];
+    const savedFiles = [];
     for (const site of config.sites) {
-      siteResults.push(await processSite(page, site, targetDate, temporaryFolder, runId));
+      const siteResult = await processSite(page, site, targetDate, temporaryFolder, runId, state, today);
+      siteResults.push(siteResult);
+      for (const result of siteResult.results || []) {
+        if (result.status === 'saved' && result.filePath && !savedFiles.includes(result.filePath)) {
+          savedFiles.push(result.filePath);
+        }
+      }
     }
-
-    const savedFiles = siteResults
-      .flatMap((siteResult) => siteResult.results || [])
-      .filter((result) => result.status === 'saved')
-      .map((result) => result.filePath);
 
     if (savedFiles.length === 0) {
       await logger.info('No valid PDF documents were found this run.');
@@ -283,10 +289,6 @@ export async function runDownload() {
     }
 
     const emailResult = await sendEmail({ pdfFiles: savedFiles, dateKey: today });
-    if (emailResult.sent) {
-      await saveState(config.stateFile, { ...state, lastSent: today });
-    }
-
     return { status: 'completed', sites: siteResults, email: emailResult };
   } catch (error) {
     await logger.error('Agenda download run failed.', error);

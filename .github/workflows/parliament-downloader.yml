@@ -2,8 +2,13 @@ name: Parliament Downloader
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '30-59 13 * * *'
+    - cron: '*/5 14 * * *'
+    - cron: '0-30/5 15 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   download:
@@ -17,9 +22,13 @@ jobs:
       TIMEOUT: 120000
       DOWNLOAD_FOLDER: downloads
       TIME_ZONE: Asia/Kolkata
+      PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,15 +36,31 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install dependencies
         run: npm ci
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Enforce IST window
-        run: |
-          node -e "const now=new Date(); const ist=new Date(now.toLocaleString('en-US',{timeZone:'Asia/Kolkata'})); const hour=ist.getHours(); const inWindow = hour >= 19 && hour <= 21; if (!inWindow) { console.log('Outside IST window, skipping.'); process.exit(0); }"
-
       - name: Run downloader
         run: npm start
+
+      - name: Commit updated state
+        run: |
+          if git status --short -- state.json | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Update downloader state"
+            git push
+          else
+            echo "No state changes to commit."
+          fi

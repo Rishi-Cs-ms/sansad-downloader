@@ -1,7 +1,6 @@
 node_modules/
 downloads/
 logs/
-state.json
 .env
 .env.local
 .DS_Store

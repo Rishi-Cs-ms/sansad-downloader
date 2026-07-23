@@ -3,16 +3,20 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { loadState, saveState, shouldSendEmail } from '../src/state.js';
+import { loadState, saveState, getDocumentState, markDocumentProcessed } from '../src/state.js';
 
-test('shouldSendEmail returns false for the same day after a successful send', async () => {
+test('tracks each document independently for a day', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'sansad-state-'));
   try {
     const stateFile = path.join(tempDir, 'state.json');
-    await saveState(stateFile, { lastSent: '2026-07-23' });
-    const state = await loadState(stateFile);
-    assert.equal(shouldSendEmail(state, '2026-07-23'), false);
-    assert.equal(shouldSendEmail(state, '2026-07-24'), true);
+    const state = {};
+    markDocumentProcessed(state, '2026-07-23', 'loksabha', 'listOfBusiness');
+    await saveState(stateFile, state);
+
+    const reloaded = await loadState(stateFile);
+    assert.equal(getDocumentState(reloaded, '2026-07-23', 'loksabha', 'listOfBusiness'), true);
+    assert.equal(getDocumentState(reloaded, '2026-07-23', 'loksabha', 'revisedListOfBusiness'), false);
+    assert.equal(getDocumentState(reloaded, '2026-07-23', 'rajyasabha', 'listOfBusiness'), false);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

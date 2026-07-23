@@ -1,6 +1,6 @@
 # Sansad Agenda Downloader
 
-A Node.js (ES Modules) automation that checks both Parliament agenda sites for tomorrow's documents, downloads valid PDFs, and sends one email per day with all saved attachments.
+A Node.js (ES Modules) automation that checks both Parliament agenda sites for tomorrow's documents, downloads valid PDFs, and sends one email with any newly discovered attachments.
 
 ## What it does
 
@@ -12,8 +12,8 @@ A Node.js (ES Modules) automation that checks both Parliament agenda sites for t
   - Revised List of Business
 - Selects tomorrow's date and downloads any available PDF from the in-page viewer.
 - Keeps only multi-page PDFs and never overwrites an existing file.
-- Sends one email per day when at least one valid PDF exists.
-- Uses a persistent state file to avoid duplicate emails on subsequent runs.
+- Tracks each document independently with a persistent state file so later runs continue from the remaining unfinished documents.
+- Sends one email when a run finds one or more new PDFs.
 
 ## Installation
 
@@ -50,8 +50,8 @@ STATE_FILE=state.json
 - TIMEOUT: Playwright timeout in milliseconds.
 - RETRIES: retry attempts for each download.
 - TIME_ZONE: timezone used for selecting tomorrow's date; keep this as Asia/Kolkata for GitHub Actions.
-- EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO: SMTP credentials for Nodemailer.
-- STATE_FILE: JSON file used for duplicate-email protection.
+- EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO: SMTP credentials for Nodemailer. EMAIL_PASSWORD must be a Google App Password for Gmail SMTP.
+- STATE_FILE: JSON file used to track per-document progress.
 
 ## Running locally
 
@@ -59,36 +59,37 @@ STATE_FILE=state.json
 npm start
 ```
 
-## Running GitHub Actions
+## GitHub Actions schedule
 
-The repository includes [.github/workflows/parliament-downloader.yml](.github/workflows/parliament-downloader.yml). It runs every 5 minutes between 7:00 PM and 9:00 PM IST via cron and also supports workflow_dispatch.
+The workflow uses the requested cron expressions so it runs only during the 7:00 PM to 9:00 PM IST window:
 
-Set GitHub Secrets:
+- 13:30-13:59 UTC
+- 14:00-14:55 UTC
+- 15:00-15:30 UTC
+
+It also supports workflow_dispatch for manual runs.
+
+## GitHub Secrets
+
+Set these in your repository secrets:
 
 - EMAIL_USER
 - EMAIL_PASSWORD
 - EMAIL_TO
 
-## Project structure
+## State persistence
 
-```text
-sansad-downloader/
-├── src/
-│   ├── config.js       # Environment configuration
-│   ├── downloader.js   # Browser workflow and PDF processing
-│   ├── email.js        # Nodemailer email delivery
-│   ├── index.js        # Entry point
-│   ├── logger.js       # Console and file logging
-│   ├── pdf.js          # PDF page counting
-│   ├── scheduler.js    # GitHub Actions-friendly entry point
-│   └── state.js        # Persistent duplicate-email state
-├── .github/workflows/
-├── downloads/
-├── logs/
-├── .env.example
-├── package.json
-└── README.md
-```
+The downloader stores progress in state.json. Because GitHub Actions starts from a fresh checkout, the workflow commits state.json back to the repository whenever it changes.
+
+## Architecture
+
+The project stays modular:
+
+- src/downloader.js: browser flow and document processing
+- src/email.js: Nodemailer delivery
+- src/state.js: per-document state persistence
+- src/logger.js: logging and failure artifacts
+- src/pdf.js: PDF validation
 
 ## Troubleshooting
 

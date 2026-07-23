@@ -29,8 +29,8 @@ export const config = Object.freeze({
   retries: positiveInteger(process.env.RETRIES, 3),
   timeZone: process.env.TIME_ZONE || 'Asia/Kolkata',
   sites: [
-    { id: 'ls', name: 'Lok Sabha', shortName: 'LS', baseUrl: 'https://sansad.in/ls/business/agenda', filePrefix: 'LS' },
-    { id: 'rs', name: 'Rajya Sabha', shortName: 'RS', baseUrl: 'https://sansad.in/rs/house-business/items-of-business', filePrefix: 'RS' }
+    { id: 'loksabha', name: 'Lok Sabha', shortName: 'LS', baseUrl: 'https://sansad.in/ls/business/agenda', filePrefix: 'LS' },
+    { id: 'rajyasabha', name: 'Rajya Sabha', shortName: 'RS', baseUrl: 'https://sansad.in/rs/house-business/items-of-business', filePrefix: 'RS' }
   ],
   email: {
     user: process.env.EMAIL_USER || '',
