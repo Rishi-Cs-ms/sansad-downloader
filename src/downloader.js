@@ -95,19 +95,7 @@ export function looksLikeAgendaPageContent(value) {
 }
 
 async function waitForAgendaResponse(page) {
-  try {
-    await page.waitForFunction(
-      () => {
-        const content = [...document.querySelectorAll('p, div, span')]
-          .map((node) => node.textContent || '')
-          .join('\n');
-        return /list of business|revised list of business|no document available|no documents available|no data available/i.test(content);
-      },
-      { timeout: Math.min(config.timeout, 20_000) }
-    );
-  } catch {
-    await logger.warn('Agenda page did not expose the expected document labels in time; continuing with the current page state.');
-  }
+  await page.waitForTimeout(2_000).catch(() => {});
 }
 
 async function selectTomorrow(page, targetDate) {
@@ -163,23 +151,15 @@ async function selectAgendaDocument(page, documentName) {
   }
 
   await cardLink.click();
+  await page.waitForTimeout(2_000).catch(() => {});
 
-  try {
-    await page.waitForFunction(
-      ({ name, testId }) => {
-        const title = [...document.querySelectorAll('p')]
-          .find((node) => (node.textContent || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
-        const cardElement = title?.closest('.MuiCard-root');
-        return Boolean(cardElement) && Boolean(document.querySelector(`[data-testid="${testId}"]`));
-      },
-      { name: documentName, testId: AGENDA_DOWNLOAD_TEST_ID },
-      { timeout: 10_000 }
-    );
-    return true;
-  } catch {
+  const control = page.getByTestId(AGENDA_DOWNLOAD_TEST_ID);
+  const hasControl = await control.count();
+  if (hasControl === 0) {
     await logger.warn(`${documentName}: the page did not expose the expected document controls in time; continuing with the current state.`);
     return false;
   }
+  return true;
 }
 
 async function processAgendaDocument(page, site, document, targetDate, temporaryFolder, runId, state, todayKeyValue) {
