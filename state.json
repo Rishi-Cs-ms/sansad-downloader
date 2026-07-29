@@ -58,5 +58,15 @@
       "listOfBusiness": false,
       "revisedListOfBusiness": true
     }
+  },
+  "2026-07-30": {
+    "loksabha": {
+      "listOfBusiness": false,
+      "revisedListOfBusiness": false
+    },
+    "rajyasabha": {
+      "listOfBusiness": true,
+      "revisedListOfBusiness": false
+    }
   }
 }
