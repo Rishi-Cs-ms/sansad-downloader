@@ -62,11 +62,11 @@
   "2026-07-30": {
     "loksabha": {
       "listOfBusiness": false,
-      "revisedListOfBusiness": false
+      "revisedListOfBusiness": true
     },
     "rajyasabha": {
       "listOfBusiness": true,
-      "revisedListOfBusiness": false
+      "revisedListOfBusiness": true
     }
   }
 }
