@@ -13,7 +13,7 @@ A Node.js (ES Modules) automation that checks both Parliament agenda sites for t
 - Selects tomorrow's date and downloads any available PDF from the in-page viewer.
 - Keeps only multi-page PDFs and never overwrites an existing file.
 - Tracks each document independently with a persistent state file so later runs continue from the remaining unfinished documents.
-- Sends one email when a run finds one or more new PDFs.
+- Sends an email immediately after each site yields one or more new PDFs; it does not wait for the other site.
 
 ## Installation
 

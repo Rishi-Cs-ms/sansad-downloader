@@ -98,6 +98,13 @@ export function looksLikeAgendaPageContent(value) {
     /no document available|no documents available|no data available/i.test(text);
 }
 
+export function savedFilesFromSiteResult(siteResult) {
+  return (siteResult.results || [])
+    .filter((result) => result.status === 'saved' && result.filePath)
+    .map((result) => result.filePath)
+    .filter((filePath, index, files) => files.indexOf(filePath) === index);
+}
+
 async function waitForAgendaResponse(page) {
   await page.waitForTimeout(2_000).catch(() => {});
 }
@@ -270,24 +277,31 @@ export async function runDownload() {
     page.setDefaultNavigationTimeout(config.timeout);
 
     const siteResults = [];
-    const savedFiles = [];
+    const emailResults = [];
     for (const site of config.sites) {
       const siteResult = await processSite(page, site, temporaryFolder, runId, state, today);
       siteResults.push(siteResult);
-      for (const result of siteResult.results || []) {
-        if (result.status === 'saved' && result.filePath && !savedFiles.includes(result.filePath)) {
-          savedFiles.push(result.filePath);
-        }
+
+      const savedFiles = savedFilesFromSiteResult(siteResult);
+      if (savedFiles.length === 0) {
+        continue;
+      }
+
+      try {
+        const emailResult = await sendEmail({ pdfFiles: savedFiles, dateKey: today });
+        emailResults.push({ site: site.id, files: savedFiles, ...emailResult });
+      } catch (error) {
+        await logger.error(`${site.name}: email failed; continuing with the next site.`, error);
+        emailResults.push({ site: site.id, files: savedFiles, sent: false, reason: 'send-failed', error: error.message });
       }
     }
 
-    if (savedFiles.length === 0) {
+    if (emailResults.length === 0) {
       await logger.info('No valid PDF documents were found this run.');
       return { status: 'completed', sites: siteResults, email: { sent: false, reason: 'no-pdfs' } };
     }
 
-    const emailResult = await sendEmail({ pdfFiles: savedFiles, dateKey: today });
-    return { status: 'completed', sites: siteResults, email: emailResult };
+    return { status: 'completed', sites: siteResults, emails: emailResults };
   } catch (error) {
     await logger.error('Agenda download run failed.', error);
     await saveFailureArtifacts(page, runId);

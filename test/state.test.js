@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { loadState, saveState, getDocumentState, markDocumentProcessed } from '../src/state.js';
-import { tomorrowDate, looksLikeAgendaPageContent } from '../src/downloader.js';
+import { tomorrowDate, looksLikeAgendaPageContent, savedFilesFromSiteResult } from '../src/downloader.js';
 
 test('tracks each document independently for a day', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'sansad-state-'));
@@ -34,4 +34,17 @@ test('uses tomorrow as the target agenda date', () => {
   const referenceDate = new Date('2026-07-23T12:00:00Z');
   const targetDate = tomorrowDate(referenceDate);
   assert.equal(targetDate.toISOString().slice(0, 10), '2026-07-24');
+});
+
+test('selects only newly saved files from one site for immediate email delivery', () => {
+  const siteResult = {
+    results: [
+      { status: 'saved', filePath: '/tmp/agenda.pdf' },
+      { status: 'already-processed', filePath: '/tmp/old.pdf' },
+      { status: 'saved', filePath: '/tmp/revised.pdf' },
+      { status: 'saved', filePath: '/tmp/agenda.pdf' }
+    ]
+  };
+
+  assert.deepEqual(savedFilesFromSiteResult(siteResult), ['/tmp/agenda.pdf', '/tmp/revised.pdf']);
 });
