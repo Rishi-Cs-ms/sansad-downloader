@@ -12,8 +12,9 @@ A Node.js (ES Modules) automation that checks both Parliament agenda sites for t
   - Revised List of Business
 - Selects tomorrow's date and downloads any available PDF from the in-page viewer.
 - Keeps only multi-page PDFs and never overwrites an existing file.
-- Tracks each document independently with a persistent state file so later runs continue from the remaining unfinished documents.
+- Tracks each document independently only after its email succeeds, so failed email delivery is retried by a later run.
 - Sends an email immediately after each site yields one or more new PDFs; it does not wait for the other site.
+- Once every configured agenda document has been emailed for the day, later scheduled runs exit immediately and resume automatically the next day.
 
 ## Installation
 
@@ -79,7 +80,7 @@ Set these in your repository secrets:
 
 ## State persistence
 
-The downloader stores progress in state.json. Because GitHub Actions starts from a fresh checkout, the workflow commits state.json back to the repository whenever it changes.
+The downloader stores successfully emailed document progress in state.json. Because GitHub Actions starts from a fresh checkout, the workflow commits state.json back to the repository whenever it changes. Once all configured documents are recorded for a day, later scheduled runs skip browser startup for that day.
 
 ## Architecture
 

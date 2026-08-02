@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { loadState, saveState, getDocumentState, markDocumentProcessed } from '../src/state.js';
-import { tomorrowDate, looksLikeAgendaPageContent, savedFilesFromSiteResult } from '../src/downloader.js';
+import { tomorrowDate, looksLikeAgendaPageContent, savedFilesFromSiteResult, isDayComplete } from '../src/downloader.js';
 
 test('tracks each document independently for a day', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'sansad-state-'));
@@ -47,4 +47,18 @@ test('selects only newly saved files from one site for immediate email delivery'
   };
 
   assert.deepEqual(savedFilesFromSiteResult(siteResult), ['/tmp/agenda.pdf', '/tmp/revised.pdf']);
+});
+
+test('treats a day as complete only after every site document is emailed', () => {
+  const state = {};
+  const dayKey = '2026-07-23';
+  assert.equal(isDayComplete(state, dayKey), false);
+
+  for (const site of ['loksabha', 'rajyasabha']) {
+    for (const document of ['listOfBusiness', 'revisedListOfBusiness']) {
+      markDocumentProcessed(state, dayKey, site, document);
+    }
+  }
+
+  assert.equal(isDayComplete(state, dayKey), true);
 });

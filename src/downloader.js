@@ -105,6 +105,23 @@ export function savedFilesFromSiteResult(siteResult) {
     .filter((filePath, index, files) => files.indexOf(filePath) === index);
 }
 
+export function isDayComplete(state, dayKeyValue) {
+  return config.sites.every((site) =>
+    AGENDA_DOCUMENTS.every((document) =>
+      getDocumentState(state, dayKeyValue, site.id, document.key)
+    )
+  );
+}
+
+async function markSiteDocumentsEmailed(siteResult, state, dayKeyValue) {
+  for (const result of siteResult.results || []) {
+    if (result.status === 'saved' && result.documentKey) {
+      markDocumentProcessed(state, dayKeyValue, result.site, result.documentKey);
+    }
+  }
+  await saveState(config.stateFile, state);
+}
+
 async function waitForAgendaResponse(page) {
   await page.waitForTimeout(2_000).catch(() => {});
 }
@@ -184,10 +201,8 @@ async function processAgendaDocument(page, site, document, targetDate, temporary
   }
 
   if (await exists(finalPath)) {
-    markDocumentProcessed(state, dayKeyValue, site.id, document.key);
-    await saveState(config.stateFile, state);
-    await logger.info(`${site.shortName}/${document.label}: skipped because ${fileName} already exists.`);
-    return { site: site.id, document: document.label, status: 'already-exists', filePath: finalPath };
+    await logger.info(`${site.shortName}/${document.label}: ${fileName} already exists and will be emailed.`);
+    return { site: site.id, document: document.label, documentKey: document.key, status: 'saved', filePath: finalPath };
   }
 
   try {
@@ -210,15 +225,13 @@ async function processAgendaDocument(page, site, document, targetDate, temporary
 
     if (await exists(finalPath)) {
       await rm(temporaryPath, { force: true });
-      await logger.warn(`${site.shortName}/${document.label}: ${fileName} was created by another run; temporary file deleted.`);
-      return { site: site.id, document: document.label, status: 'already-exists', filePath: finalPath };
+      await logger.warn(`${site.shortName}/${document.label}: ${fileName} was created by another run; it will be emailed.`);
+      return { site: site.id, document: document.label, documentKey: document.key, status: 'saved', filePath: finalPath };
     }
 
     await rename(temporaryPath, finalPath);
-    markDocumentProcessed(state, dayKeyValue, site.id, document.key);
-    await saveState(config.stateFile, state);
-    await logger.success(`${site.shortName}/${document.label}: saved ${finalPath}`);
-    return { site: site.id, document: document.label, status: 'saved', filePath: finalPath, pages };
+    await logger.success(`${site.shortName}/${document.label}: saved ${finalPath}; awaiting email confirmation.`);
+    return { site: site.id, document: document.label, documentKey: document.key, status: 'saved', filePath: finalPath, pages };
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => {});
   }
@@ -263,6 +276,11 @@ export async function runDownload() {
   const today = todayKey(new Date());
   const state = await loadState(config.stateFile);
 
+  if (isDayComplete(state, today)) {
+    await logger.info(`All agenda PDFs for ${today} have already been emailed successfully; skipping this scheduled run.`);
+    return { status: 'already-complete', email: { sent: false, reason: 'already-emailed' } };
+  }
+
   await mkdir(temporaryFolder, { recursive: true });
   await logger.info(`Tomorrow date (${config.timeZone}): ${today}.`);
 
@@ -289,6 +307,9 @@ export async function runDownload() {
 
       try {
         const emailResult = await sendEmail({ pdfFiles: savedFiles, dateKey: today });
+        if (emailResult.sent) {
+          await markSiteDocumentsEmailed(siteResult, state, today);
+        }
         emailResults.push({ site: site.id, files: savedFiles, ...emailResult });
       } catch (error) {
         await logger.error(`${site.name}: email failed; continuing with the next site.`, error);
