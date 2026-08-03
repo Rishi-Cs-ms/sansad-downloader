@@ -62,7 +62,7 @@ npm start
 
 ## GitHub Actions schedule
 
-The workflow uses the requested cron expressions so it runs only during the 7:00 PM to 9:00 PM IST window:
+The workflow runs every five minutes from 7:00 PM through 9:00 PM IST (13:30 through 15:30 UTC):
 
 - 13:30-13:59 UTC
 - 14:00-14:55 UTC
